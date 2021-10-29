@@ -15,31 +15,67 @@ uData = read_excel(underlyingURL, skip=2)
 merged = merge(uData, fData, by="Date")
 omitted = na.omit(merged[,c(1,4,9)])  #choose only specific rows
 
-library(xts)
-plot(xts(omitted[,2:3],omitted$Date,yaxis.same=F, multi.panel=T))
-plot(xts(omitted[,2],omitted$Date,yaxis.same=F, multi.panel=T))
-plot(xts(omitted[,3],omitted$Date,yaxis.same=F, multi.panel=T))
+u = unlist(omitted[,2])
+f = unlist(omitted[,3])
+dates = omitted$Date
+
 change = lapply(as.vector(omitted[,2:3]), diff, lag=1)
+du = unlist(change[1])
+df = unlist(change[2])
+
+library(xts)
+plot(xts(u,dates))
+plot(xts(f,dates))
+
 
 #diff(as.matrix(omitted[,3],lag=1))
 #uChange = diff(omitted$Price,lag=1)
 
 
+#Test for normality, heteroskedasticity, autocorrelation
+#Multicollinearity? Prob not
+
+
+
 
 #OLS
-plot(unlist(omitted[2]), unlist(omitted[3]))
-summary(lm(unlist(omitted[2]) ~ unlist(omitted[3])))
+plot(u, f)
+summary(lm(u ~ f))
 
-plot(unlist(change[1]), unlist(change[2]))
-summary(lm(unlist(change[1]) ~ unlist(change[2])))
+plot(du, df)
+model = summary(lm(du ~ df))
+summary(lm(df ~ du)) #flipped
+
+#OLS correlation estimate
+rho = model$coefficients[2,1]
+
+#OLS Hedge
+h = rho * sd(df)/sd(du)
+h
 
 
-#Garch
+#Univariate GARCH
+library(rugarch)
+uniVarSpec = ugarchspec(mean.model=list(armaOrder=c(0,0)),
+                  variance.model=list(garchOrder=c(1,1),
+                                      model="sGARCH"),
+                  distribution.model="norm")
+
+uniGarch <- ugarchfit(spec = uniVarSpec, data = f)
+print(garch)
 
 
+#Univariate GARCH hedge
 
 
+#Bivariate GARCH
+library(rmgarch)
+biVarSpec = gogarchspec(uniVarSpec,uniVarSpec)
+
+biGarch = gogarchfit(spec = biVarSpec, data = cbind(f,u))
+print(biGarch)
 
 
+#Bivariate GARCH hedge
 
 
