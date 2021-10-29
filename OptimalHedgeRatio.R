@@ -136,12 +136,41 @@ library(lmtest)
 #Breusch-Pagan (check also with White?)
 bptest(dModel)  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
 
-
-
 #Correct for heteroskedasticity and autocorrelation (Andrews)
 library(sandwich)
 robust = coeftest(dModel, vcov=vcovHAC(dModel))
 robust
+
+
+
+# ARMA
+ARMA1 <- arima(du, order=c(1,0,0))
+ARMA2 <- arima(du, order=c(0,0,1))
+ARMA3 <- arima(du, order=c(1,0,1))
+ARMA9 <- arima(du, order=c(9,0,0)) # orders from acf and pacf
+
+# AIC
+ARMA1$aic
+ARMA2$aic
+ARMA3$aic
+ARMA9$aic
+
+# select ARMA9
+ARMA9
+
+# residuals and standardised residuals
+# residuals <- model7$residuals
+# w <- residuals/(sqrt(model7$sigma2))
+# plot(w)
+# acfw <- acf(w, lag.max=14)
+
+# Forecasting (forecast with GARCH instead)
+library(forecast)
+forecast <- forecast(ARMA9, h=30)  #30 day forecast
+plot(forecast)
+
+
+
 
 
 
@@ -160,6 +189,32 @@ print(garch)
 #Univariate GARCH hedge
 
 
+
+
+#Fit VAR
+#library(vars)
+# VARselect(dtelefonica, lag.max=12)$selection
+# fitvardtelefonica  <- VAR(dtelefonica,p=2)
+# summary(fitvardtelefonica)
+
+# roots(fitvartelefonica)
+# 
+# #install.packages("urca")
+# library(urca)
+# 
+# citelefonica <- ca.jo(telefonica, type = "trace", ecdet = "const", K = 3)
+# summary(citelefonica)
+# 
+# citelefonica = 1.0000000*CDS -0.9651852*CS -33.6102961
+# plot(citelefonica, type="l")
+
+
+#Granger causality. Do we need to correct for the other price
+#causality(fitvardtelefonica, cause = "dCDS")
+
+
+
+
 #Bivariate GARCH
 library(rmgarch)
 biVarSpec = gogarchspec(uniVarSpec,uniVarSpec)
@@ -173,22 +228,16 @@ print(biGarch)
 
 
 
-#Fit VAR
-#library(vars)
-# VARselect(dtelefonica, lag.max=12)$selection
-# fitvardtelefonica  <- VAR(dtelefonica,p=2)
-# summary(fitvardtelefonica)
 
-#Granger causality. Do we need to correct for the other price
-#causality(fitvardtelefonica, cause = "dCDS")
 
 
 
 #Information criteria
-#round(AIC(reg1, reg2, logRet),2)
-#round(BIC(reg1, reg2, logRet),2)
+# round(AIC(dModel, model, logModel),2)
+# round(BIC(dModel, model, logModel),2)
 
 #Adjusted R squared
+# round(c(summary(dModel)$adj.r.squared, summary(model)$adj.r.squared, summary(logModel)$adj.r.squared), 4)
 
 
 
