@@ -4,57 +4,74 @@ rm(list=ls())
 cat("\14")
 library(readxl)
 
+#Futures data
 futuresURL = "Data/Weather.xlsx"
 fName = names(read_excel(futuresURL, n_max=1))  #extract the name of the dataset
 fData = read_excel(futuresURL, skip=2)
 
-underlyingURL = "Data/eMini.xlsx"
+#Underlying data
+#underlyingURL = "Data/eMini.xlsx"
+#underlyingURL = "Data/Corn.xlsx"
+underlyingURL = "Data/SRWheat.xlsx"
 uName = names(read_excel(underlyingURL, n_max=1))  #extract the name of the dataset
 uData = read_excel(underlyingURL, skip=2)
 
+#Merge the 2 datasets and exclude extra data
 merged = merge(uData, fData, by="Date")
-omitted = na.omit(merged[,c(1,2,9)])  #choose only specific rows
+omitted = na.omit(merged[,c(1,2,20)])  #choose only data columns. And remove the empty rows
 
+#Prices
 u = unlist(omitted[,2])
 f = unlist(omitted[,3])
 dates = omitted$Date
 
-#Just looking at the price data, we can see that it is non-stationary.
-#So we choose returns data instead.
+#Price changes
 change = lapply(as.vector(omitted[,2:3]), diff, lag=1)
 du = unlist(change[1])
-df = unlist(change[2])    #check these. Not returns, they are price changes
+df = unlist(change[2])
 dDates = dates[-1]
 
+#Percentage changes (returns)
+duPer = du/u[-length(u)]  #check theoretical settlement. Should we use the empty spaces instead?
+dfPer = df/f[-length(f)]
+
+#Combine all into one dataframe
+priceAll = data.frame(dates,u,f)
+dAll = data.frame(dDates,du,df,duPer,dfPer)
+all = merge(priceAll, dAll, by.x="dates", by.y="dDates", all.x=T)
+
+#Plotting
 library(xts)
+#dev.new()
+#for(x in all) {plot(xts(x,dates))}
+#Map(all,xts,dates)
 plot(xts(u,dates))
 plot(xts(f,dates))
 plot(xts(du,dDates))
 plot(xts(df,dDates))
-
-summary(u)
-summary(f)
-summary(du)
-summary(df)
-
-
-#diff(as.matrix(omitted[,3],lag=1))
-#uChange = diff(omitted$Price,lag=1)
+plot(xts(duPer,dDates))
+plot(xts(dfPer,dDates))
+#Just looking at the price data, we can see that it is non-stationary.
+#So we should probably use changes or percentage changes
+#dev.off()
 
 
-#Test for normality, heteroskedasticity, autocorrelation
-#Multicollinearity? Prob not
-#No multicollinearity if we have only one explanatory variable
+#Descriptive statistics
+summary(all[,-1], digits=2)
+library(pastecs)
+stats <- stat.desc(all[, -1])
+round(stats, 1)
+library(stargazer)
+stargazer(all,out = NULL)
 
-
-#Corrections for the problems
 
 #Let's check the distributions. Do they look normal?
 hist(u, breaks=50, main = "Histogram of underlying prices")
 hist(f, breaks=50, main = "Histogram of futures prices")
-hist(du, breaks=50, main = "Histogram of underlying returns")   #these are actually price changes, not returns
-hist(df, breaks=50, main = "Histogram of futures returns")
-
+hist(du, breaks=50, main = "Histogram of underlying changes")
+hist(df, breaks=50, main = "Histogram of futures changes")
+hist(duPer, breaks=50, main = "Histogram of underlying returns")
+hist(dfPer, breaks=50, main = "Histogram of futures returns")
 
 
 #OLS
@@ -66,16 +83,27 @@ plot(du, df)
 dModel = lm(du ~ df)
 summary(dModel)
 
-dFlipped = lm(df ~ du)
-summary(dFlipped)
+perModel = lm(duPer ~ dfPer)
+summary(perModel)
 
-#OLS correlation estimate
-rho = dModel$coefficients[2,1]
-
-#OLS Hedge
-h = rho * sd(df)/sd(du)
+#OLS Hedge ratio
+h = dModel$coefficients[2]
 h
 
+#Same with correlations
+rho = sqrt(summary(dModel)$r.squared)
+rho
+rhoCheck = cor(du,df)
+rhoCheck
+
+h = rho * sd(du)/sd(df)
+h
+
+
+#Test for normality, heteroskedasticity, autocorrelation
+#No multicollinearity if we have only one explanatory variable
+#If we have granger causality, we should include bothe prices and also check for collinearity
+#Conduct corrections for some of the problems
 
 
 
