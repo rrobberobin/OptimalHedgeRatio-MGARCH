@@ -57,12 +57,50 @@ plot(xts(dfPer,dDates))
 
 
 #Descriptive statistics
-summary(all[,-1], digits=2)
-library(pastecs)
-stats <- stat.desc(all[, -1])
-round(stats, 1)
 library(stargazer)
-stargazer(all,out = NULL)
+stargazer(all, 
+          type = "text",
+          out = "desc.html",
+          title = "Descriptive statistics",
+          style = "default", #"aer", "qje"
+          flip = T,
+          digits = 1,
+          digits.extra = 0,
+          median=T,
+          add.lines = list(kurtosis(all[,-1],na.rm=T),skewness(all[,-1],na.rm=T))
+          )
+
+
+#Need to add these somehow
+kurtosis(all[,-1],na.rm=T)
+skewness(all[,-1],na.rm=T)
+
+
+#More options for descriptives
+# summary(all[,-1], digits=3)
+# library(pastecs)
+# stats <- stat.desc(all[, -1], norm=T)
+# round(stats, 1)
+# 
+# library(vtable)
+# st(all,
+#    add.median=T,
+#    out='csv',
+#    file="desc"
+# )
+# library(psych)
+# describe(all[,-1])
+
+
+
+library(DescTools)
+install.packages("RDCOMClient", repos = "http://www.omegahat.net/R")
+library(RDCOMClient)
+wrd = GetNewWrd(header = TRUE)
+Desc(all[,-1], plotit = F, digits=1, verbose=1, wrd = wrd)
+
+
+
 
 
 #Let's check the distributions. Do they look normal?
@@ -83,47 +121,65 @@ plot(du, df)
 dModel = lm(du ~ df)
 summary(dModel)
 
+plot(duPer, dfPer)
 perModel = lm(duPer ~ dfPer)
 summary(perModel)
 
+#Summary of all models
+stargazer(model,dModel,perModel,
+          type = "text",
+          no.space = T,
+          digits=5)
+
 #OLS Hedge ratio
-h = dModel$coefficients[2]
+h = perModel$coefficients[2]
 h
 
 #Same with correlations
-rho = sqrt(summary(dModel)$r.squared)
+rho = sqrt(summary(perModel)$r.squared)
 rho
-rhoCheck = cor(du,df)
+rhoCheck = cor(duPer,dfPer) #Should be equal to this
 rhoCheck
 
-h = rho * sd(du)/sd(df)
+h = rho * sd(duPer)/sd(dfPer)
 h
+
+#Check
+#onlyRecent = all[(all$dates == "2021-05-04"),]
+onlyRecent = subset(all, dates > "2021-05-04")
+
+
+cor(onlyRecent$duPer,onlyRecent$dfPer)
+cor(onlyRecent$du,onlyRecent$df)
+cor(onlyRecent$u,onlyRecent$f)
+
+
+
+
 
 
 #Test for normality, heteroskedasticity, autocorrelation
-#No multicollinearity if we have only one explanatory variable
-#If we have granger causality, we should include bothe prices and also check for collinearity
-#Conduct corrections for some of the problems
-
-
 
 #Residuals
 res = model$residuals
 dRes = dModel$residuals
+perRes = perModel$residuals
 
 #Normality of residuals. Do they look normal?
 hist(res, breaks=50, main = "Histogram of price residuals")
-hist(dRes, breaks=50, main = "Histogram of return residuals")
+hist(dRes, breaks=50, main = "Histogram of change residuals")
+hist(perRes, breaks=50, main = "Histogram of return residuals")
 
 #Test for normality
 library(moments)
-jarque.test(res)  #Definitely not normal
+jarque.test(res)  #Not normal. The histogram definitely does not look normal
 jarque.test(dRes) #Not normal
+jarque.test(perRes) #Not normal
 
 
-#Remedies for normality. (Big sample size CLT, simulating more observations, logarithmic transform)
-plot(log(1+du), log(1+df))
-logModel = lm(log(1+du) ~ log(1+df))   #Check that it's the right log transformation. We want the correlation
+#Remedies for normality: (Big sample size CLT, simulating more observations, logarithmic transform)
+plot(log(1+duPer), log(1+dfPer))
+logModel = lm(log(1+duPer) ~ log(1+dfPer))    #Check if right model. Should I log both?
 logRes = logModel$residuals
 hist(logRes, breaks=50, main = "Histogram of logreturns residuals")
 jarque.test(logRes)
@@ -134,27 +190,41 @@ summary(logModel)
 acf(u)
 acf(f)
 
-acf(du) #Some autocorrelation
-acf(df) #No autocorrelation
-acf(df) #No autocorrelation
+acf(du,lag.max=50) #Small autocorrelation at t+1
+acf(df,lag.max=500) #Some autocorrelation periodically
 
-pacf(du)
-pacf(df)
+acf(duPer,lag.max=50) #Small autocorrelation at t+1
+acf(dfPer,lag.max=500) #Some autocorrelation periodically
+
+
+pacf(u)
+pacf(f)
+
+pacf(du,lag.max=50) #Small partial autocorrelation at t+1
+pacf(df,lag.max=500) #Some partial autocorrelation periodically
+
+pacf(duPer,lag.max=50) #Small partial autocorrelation at t+1
+pacf(dfPer,lag.max=500) #Some partial autocorrelation periodically
+
 
 #Breusch-Godfrey (autocorrelation)
 library(lmtest)
-bgtest(dModel,252)  #test of order 252 based on days
+bgtest(perModel,252)  #test of order 252 based on days
 
 #Ljung-box (autocorrelation)
-Box.test(du,lag=9,type="Ljung-Box")
-Box.test(df,lag=5,type="Ljung-Box")
+Box.test(duPer,lag=9,type="Ljung-Box")
+Box.test(dfPer,lag=5,type="Ljung-Box")
 
 #Augmented Dickey-Fuller (unit root)
 library(fUnitRoots)
-adfTest(du, lags = 9, type = c("nc"), title = NULL, description = NULL)
-adfTest(df, lags = 5, type = c("nc"), title = NULL, description = NULL)
+adfTest(duPer, lags = 9, type = c("nc"), title = NULL, description = NULL)
+adfTest(dfPer, lags = 5, type = c("nc"), title = NULL, description = NULL)
 
 
+#Test for cointegration
+
+
+#We should correct for these autocorrelations!
 
 
 
@@ -169,13 +239,18 @@ library(sandwich)
 robust = coeftest(dModel, vcov=vcovHAC(dModel))
 robust
 
+#Multicollinearity
+#No multicollinearity if we have only one explanatory variable
+#If we have granger causality, we should include both prices and also check for collinearity
+#Conduct corrections for some of the problems
+
 
 
 # ARMA
-ARMA1 <- arima(du, order=c(1,0,0))
-ARMA2 <- arima(du, order=c(0,0,1))
-ARMA3 <- arima(du, order=c(1,0,1))
-ARMA9 <- arima(du, order=c(9,0,0)) # orders from acf and pacf
+ARMA1 = arima(du, order=c(1,0,0))
+ARMA2 = arima(du, order=c(0,0,1))
+ARMA3 = arima(du, order=c(1,0,1))
+ARMA9 = arima(du, order=c(9,0,0)) # orders from acf and pacf
 
 # AIC
 ARMA1$aic
@@ -194,9 +269,16 @@ ARMA9
 
 # Forecasting (forecast with GARCH instead)
 library(forecast)
-forecast <- forecast(ARMA9, h=30)  #30 day forecast
+forecast = forecast(ARMA9, h=30)  #30 day forecast
 plot(forecast)
 
+
+fARMA = arima(f,order=c(1,0,0))
+SARIMA = arima(f, 
+                order=c(1,0,0),
+                seasonal=list(order=c(0,1,0),period=252))
+seasonalForecast = forecast(SARIMA, h=30)
+ts.plot(seasonalForecast)
 
 
 
