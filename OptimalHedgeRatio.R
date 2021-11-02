@@ -2,33 +2,32 @@
 
 rm(list=ls())
 cat("\14")
-library(readxl)
 
-#Futures data ----
-futuresURL = "Data/Weather.xlsx"
-futuresURL = "Data/CornFuture.xlsx"
-#underlyingURL = "Data/Soybean.xlsx"
-fDataName = names(read_excel(futuresURL, n_max=1))  #extract the name of the dataset
-fData = read_excel(futuresURL, skip=2)
+#Import data ----
+folder = "Data/"
+source("ImportData.R")
+data = importData(folder)
 
-futuresURL2 = "Data/Soybean.xlsx"
-fDataName2 = names(read_excel(futuresURL2, n_max=1))  #extract the name of the dataset
-fData2 = read_excel(futuresURL2, skip=2)
+#Futures data
 
 #Underlying data
-#underlyingURL = "Data/eMini.xlsx"
-underlyingURL = "Data/Corn.xlsx"
-#underlyingURL = "Data/SRWheat.xlsx"
-uDataName = names(read_excel(underlyingURL, n_max=1))  #extract the name of the dataset
-uData = read_excel(underlyingURL, skip=2)
+# underlyingURL = "Data/Corn.xlsx"
+# uDataName = names(read_excel(underlyingURL, n_max=1))  #extract the name of the dataset
+# uData = read_excel(underlyingURL, skip=2)
 
 
 
 
+#Data handling ----
+#Merge the datasets and exclude extra data
+chooseTickers = c("Corn", "CornFuture", "SRWheat")
+chooseData = data[chooseTickers]
+newNames = lapply(chooseData, )
 
-#Merge the 2 datasets and exclude extra data
-merged = merge(uData, fData, by="Date")
-merged = merge(merged,fData2, by="Date")
+colnames(df2) <- as.character(df1[,2])
+
+merged = Reduce(function(x, y) merge(x,y,by="Date", chooseData))
+merged = merge(data$Corn, data$CornFuture, by="Date")
 chooseFuture = 20
 if(futuresURL!="Data/Weather.xlsx") chooseFuture = 6
 
@@ -114,8 +113,9 @@ stargazer(all,
 
 
 library(DescTools)
-#install.packages("RDCOMClient", repos = "http://www.omegahat.net/R")
-library(RDCOMClient)
+if(!require(RDCOMClient)) {
+  install.packages("RDCOMClient", repos = "http://www.omegahat.net/R"); 
+  library(RDCOMClient)}
 wrd = GetNewWrd(header = TRUE)
 Desc(all[,-1], plotit = F, digits=1, verbose=1, wrd = wrd)
 
@@ -143,6 +143,18 @@ model = lm(u ~ f)
 summary(model)
 abline(model, col="red")
 
+plot(df, du)
+dModel = lm(du ~ df)
+summary(dModel)
+abline(dModel, col="red")
+
+plot(dfPer, duPer)
+perModel = lm(duPer ~ dfPer)
+summary(perModel)
+abline(perModel, col="red")
+
+
+#NonLinearModels ----
 nonLinearModel = lm(u ~ f + I(f^2))
 nonLinearModel2 = lm(u ~ poly(f,6))
 summary(nonLinearModel)
@@ -164,22 +176,9 @@ summary(nonLinearModel5)
 
 
 
-plot(df, du)
-dModel = lm(du ~ df)
-summary(dModel)
-abline(dModel, col="red")
-
-plot(dfPer, duPer)
-perModel = lm(duPer ~ dfPer)
-summary(perModel)
-abline(perModel, col="red")
 
 
-
-
-
-
-#Summary of all models
+#Summary of all models ----
 stargazer(model,dModel,perModel,
           type = "text",
           no.space = T,
@@ -200,9 +199,9 @@ h = rho * sd(u)/sd(f)
 h
 
 
+#Variance tests ----
 library(riskR)
 risk.hedge(u, f, alpha = c(0.05), beta = 2, p = 2)
-
 
 library(matrixcalc)
 fSqrd = f^2
@@ -214,7 +213,7 @@ twoAsset = minvar(var=cov(cbind(u,f)))
 formatC(twoAsset[2]/twoAsset[1], format = "f", digits = 24)
 
 
-#Check
+#Check onlyRecent and NotZero ----
 #onlyRecent = all[(all$dates == "2021-05-04"),]
 onlyRecent = subset(all, dates > "2021-05-04")
 plot(xts(onlyRecent$df,onlyRecent$dates))
@@ -251,9 +250,10 @@ cor(duPer,dfPer)
 
 
 
-#Diagnostic tests ----
+#Diagnostic tests
 #Test for normality, heteroskedasticity, autocorrelation
 
+#Normality----
 #Residuals
 res = model$residuals
 dRes = dModel$residuals
@@ -264,7 +264,7 @@ hist(res, breaks=50, main = "Histogram of price residuals")
 hist(dRes, breaks=50, main = "Histogram of change residuals")
 hist(perRes, breaks=100, main = "Histogram of return residuals")
 
-#Test for normality ----
+#Test for normality
 library(moments)
 jarque.test(res)  #Not normal. The histogram definitely does not look normal
 jarque.test(dRes) #Not normal
@@ -351,7 +351,7 @@ robust
 
 
 
-# ARMA ----
+#ARMA ----
 ARMA1 = arima(du, order=c(1,0,0))
 ARMA2 = arima(du, order=c(0,0,1))
 ARMA3 = arima(du, order=c(1,0,1))
