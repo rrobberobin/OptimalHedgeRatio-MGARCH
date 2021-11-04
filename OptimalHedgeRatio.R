@@ -16,38 +16,36 @@ data = importData(folder)
 # uData = read_excel(underlyingURL, skip=2)
 
 
-
-
 #Data handling ----
-#Merge the datasets and exclude extra data
+#Choose which data we want to use
 chooseTickers = c("Corn", "CornFuture", "SRWheat")
 chooseData = data[chooseTickers]
-newNames = lapply(chooseData, )
 
-colnames(df2) <- as.character(df1[,2])
+#Renaming the columns
+renamedData = renameCols(chooseData)
 
-merged = Reduce(function(x, y) merge(x,y,by="Date", chooseData))
-merged = merge(data$Corn, data$CornFuture, by="Date")
-chooseFuture = 20
-if(futuresURL!="Data/Weather.xlsx") chooseFuture = 6
-
-fName = names(merged)[chooseFuture]
-omitted = na.omit(merged[,c(1,2,chooseFuture)])  #choose only data columns. And remove the empty rows
+#Merge the datasets and exclude extra columns
+merged = Reduce(function(x, y) merge(x,y,by="Date"), renamedData)
+filter = sapply(names(merged), grepl, pattern="Price|Date")
+prices = merged[filter]
 
 #Prices
-u = unlist(omitted[,2])
-f = unlist(omitted[,3])
-dates = omitted$Date
+u = prices$Corn.Price
+f = prices$CornFuture.Settlement.Price
+f2 = prices$SRWheat.Price
+dates = prices$Date
 
 #Price changes
-change = lapply(as.vector(omitted[,2:3]), diff, lag=1)
-du = unlist(change[1])
-df = unlist(change[2])
-dDates = dates[-1]
+change = sapply(prices[-1], diff, lag=1)
+du = change[,1]
+df = change[,2]
+df2 = change[,3]
+dDates = Date[-1]
 
 #Percentage changes (returns)
-duPer = du/u[-length(u)]  #check theoretical settlement. Should we use the empty spaces instead?
+duPer = du/u[-length(u)]
 dfPer = df/f[-length(f)]
+df2Per = df2/f2[-length(f2)]
 
 #Combine all into one dataframe
 priceAll = data.frame(dates,u,f)
@@ -184,9 +182,13 @@ stargazer(model,dModel,perModel,
           no.space = T,
           digits=5)
 
-#OLS Hedge ratio
+#OLS Hedge ratio ----
 h = perModel$coefficients[2]
 h
+
+dModel$coefficients[2]
+model$coefficients[2]
+
 
 #Same with correlations
 rho = sqrt(summary(model)$r.squared)
@@ -197,6 +199,8 @@ rhoCheck
 
 h = rho * sd(u)/sd(f)
 h
+
+cor(du,df2)
 
 
 #Variance tests ----
@@ -394,7 +398,7 @@ plot(seasonalForecast)
 library(rugarch)
 uniVarSpec = ugarchspec(variance.model=list(garchOrder=c(1,1),
                                       model="sGARCH"),
-                        mean.model=list(armaOrder=c(2,2)),
+                        mean.model=list(armaOrder=c(1,1)),
                         distribution.model="norm")
 
 uniGarch = ugarchfit(spec = uniVarSpec, 
@@ -449,39 +453,46 @@ jarque.test(norma)
 
 #Bivariate GARCH ----
 library(rmgarch)
-#biVarSpec = gogarchspec(uniVarSpec,uniVarSpec)
-# biVarSpec = gogarchspec(mean.model = list(model=c("VAR"),lag =1,lag.max = NULL,lag.criterion = c("AIC")),
-#                         variance.model = list(model = "sGARCH", garchOrder = c(1,1))
-#                         )
-# biGarch = gogarchfit(spec = biVarSpec, 
-#                      data = cbind(duPer,dfPer),
-#                      out.sample = 0)
-# biGarch
-# hist(residuals(biGarch))
-
-
-biVarSpec = dccspec(multispec(replicate(2,uniVarSpec)),
+biVarSpec = dccspec(multispec(replicate(3,uniVarSpec)),
                     VAR=T,
                     lag = 5,
                     lag.max = 30,
                     lag.criterion = c("AIC"),
-                    dccOrder = c(2,2),
+                    dccOrder = c(1,1,1),
                     model = "DCC")
 
 
+
+#VAR()
+
+for(n in 1:length(du)){
+  lm(var(du) ~ lag(var(du),1) + lag(var(df),1) + lag(cov(du,df),1) +
+     lag(residuals(du^2),1) + lag(residuals(df^2),1) + lag(residuals(du*df),1))
+  
+  lm(cov(du,df) ~ lag(var(du),1) + lag(var(df),1) + lag(cov(du*df),1) +
+     lag(residuals(du^2),1) + lag(residuals(df^2),1) + lag(residuals(du*df),1))
+}
+
+
 biGarch = dccfit(spec = biVarSpec, 
-                     data = cbind(duPer,dfPer),
-                     out.sample = 20)
+                     data = cbind(duPer,dfPer, df2Per),
+                     out.sample = 252)
 biGarch
-biGarchCor = rcor(biGarch)[1,2,]
+biGarchCor = rcor(biGarch)
+biGarchCov = rcov(biGarch)
+biGarchCov[,,1]
+
+
+biGarchSD = sigma(biGarch)
+
 biGarchDates = head(dates,length(biGarchCor))
-plot(xts(biGarchCor,biGarchDates))
-ts.plot(rcor(biGarch)[1,1,])
-ts.plot(rcor(biGarch)[2,2,])
-ts.plot(rcor(biGarch)[2,1,])
+plot(xts(rcor(biGarch)[1,2,],biGarchDates))
+plot(xts(rcor(biGarch)[1,3,],biGarchDates))
+plot(xts(rcor(biGarch)[2,3,],biGarchDates))
+
 
 #hist(residuals(biGarch))
-dccForecast = dccforecast(biGarch, 35)
+dccForecast = dccforecast(biGarch, 190)
 plot(dccForecast,which=1)
 plot(dccForecast,which=2)
 plot(dccForecast,which=3)
@@ -490,19 +501,220 @@ plot(dccForecast,which=5)
 
 
 
+#Bivariate GARCH hedge ----
+forecastCov = rcov(dccForecast)[[1]]
+t = forecastCov[,,5]
+
+# #One period
+# library(NMOF)
+# optimal = minvar(t, 
+#                  wmin = -Inf, 
+#                  wmax = Inf,
+#                  groups = list(1,2:3),
+#                  groups.wmin = c(1,-Inf),
+#                  groups.wmax = c(1,Inf))
+# optimal
+# hedgeAsset1 = optimal[2]/optimal[1]
+# hedgeAsset2 = optimal[3]/optimal[1]
+# hedgeRatios = c(hedgeAsset1,hedgeAsset2)
+# hedgeRatios
+
+
+# #Multiple periods
+# library(NMOF)
+# optimalTimeVarying = sapply(forecastCov, 
+#                             minvar, 
+#                             groups = list(1,2:3), 
+#                             groups.wmin = c(0.5,0), 
+#                             groups.wmax = c(0.5,1))
+# 
+# forecastLength = dim(forecastCov[,,])[3]
+# hedgeRatiosT = c()
+# for(n in 1:forecastLength){
+#   optimalT = minvar(forecastCov[,,n],
+#                     wmin = -Inf, 
+#                     wmax = Inf,
+#                    groups = list(1,2:3),
+#                    groups.wmin = c(1,-Inf),
+#                    groups.wmax = c(1,Inf))
+#   hedgeAsset1T = optimalT[2]/optimalT[1]
+#   hedgeAsset2T = optimalT[3]/optimalT[1]
+#   hedgeRatiosT = cbind(hedgeRatiosT,c(hedgeAsset1T,hedgeAsset2T))
+# }
+# 
+# hedgeRatiosM = c()
+# for(n in 1:forecastLength){
+#   #hedge = lm()$coefficients[2]
+# }
+
+hedgeRatiosX = forecastCov[1,2,] / forecastCov[2,2,]
+
+#Hedge ratio formula: general matrix form. Solve is the inverse
+triVarHedge = c()
+for(n in 1:forecastLength){
+  fMatrix = as.matrix(forecastCov[2:3,2:3,n])
+  ufMatrix = as.matrix(forecastCov[2:3,1,n])
+  invF = solve(fMatrix)
+  h = invF %*% ufMatrix
+  triVarHedge = cbind(triVarHedge, h)
+}
+
+
+#Hedging effectiveness (out-of-sample) ----
+
+outLength = biGarch@model$modeldata$n.start
+duOut = tail(du,outLength)
+dfOut = tail(df,outLength)
+df2Out = tail(df2,outLength)
+fCov = cov(dfOut,df2Out)
+ufCov = 0
 
 
 
-#Bivariate GARCH hedge
+# test_forecast()
+# forecast::accuracy(dccForecast)
+
+
+
+triVarHE = c()
+for(n in 1:forecastLength){
+  fMatrix = as.matrix(cov(dfOut,df2Out)[n])
+  ufMatrix = as.matrix(forecastCov[2:3,1,n])
+  invF = solve(fMatrix)
+  
+  uMatrix = forecastCov[1,1,n]
+  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
+  HE = denominatorMatrix/uMatrix
+  triVarHE = cbind(triVarHE,HE)
+}
+
+biVarHE = c()
+for(n in 1:forecastLength){
+  fMatrix = as.matrix(forecastCov[2,2,n])
+  ufMatrix = as.matrix(forecastCov[2,1,n])
+  invF = solve(fMatrix)
+  
+  uMatrix = forecastCov[1,1,n]
+  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
+  HE = denominatorMatrix/uMatrix
+  biVarHE = cbind(biVarHE,HE)
+}
+
+#Hedging effectiveness (in-sample) ----
+
+inSampleSize = dim(biGarchCov)[3]
+
+#TriVarHedge (in-sample)
+triVarHedgeIn = c()
+for(n in 1:inSampleSize){
+  fMatrix = as.matrix(biGarchCov[2:3,2:3,n])
+  ufMatrix = as.matrix(biGarchCov[2:3,1,n])
+  invF = solve(fMatrix)
+  h = invF %*% ufMatrix
+  triVarHedgeIn = cbind(triVarHedgeIn, h)
+}
+
+
+
+
+
+
+
+
+triVarHEin = c()
+for(n in 1:inSampleSize){
+  fMatrix = as.matrix(biGarchCov[2:3,2:3,n])
+  ufMatrix = as.matrix(biGarchCov[2:3,1,n])
+  invF = solve(fMatrix)
+  
+  uMatrix = biGarchCov[1,1,n]
+  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
+  HE = denominatorMatrix/uMatrix
+  triVarHEin = cbind(triVarHEin,HE)
+}
+
+
+biVarHEin = c()
+for(n in 1:inSampleSize){
+  fMatrix = as.matrix(biGarchCov[2,2,n])
+  ufMatrix = as.matrix(biGarchCov[2,1,n])
+  invF = solve(fMatrix)
+  
+  uMatrix = biGarchCov[1,1,n]
+  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
+  HE = denominatorMatrix/uMatrix
+  biVarHEin = cbind(biVarHEin,HE)
+}
+
+
+
+#Should have different models, not the same biGarchCov.
+#Instead biGarchCov and TriGarchCov
+hedgeRatiosInSample = biGarchCov[1,2,] / biGarchCov[2,2,]
+
+
+inLength = length(du) - outLength
+duIn = head(du,inLength)
+duInVar = var(duIn)
+dfIn = head(df,inLength)
+dfInBiOptimal = dfIn * head(hedgeRatiosInSample,inLength)
+uf = duIn - dfInBiOptimal
+dfInBiVariate = var(duIn-dfInBiOptimal)
+HEinBiVar = 1 - dfInBiVariate/duInVar
+
+
+
+dfIn2 = head(df2,inLength)
+dfInTriVariate = head(df,inLength) * head(triVarHedgeIn[1,],inLength)
+df2InTriVariate = head(df2,inLength) * head(triVarHedgeIn[2,],inLength)
+#fMatrixVar = cov(dfInTriVariate,dfIn2TriVariate)
+
+#fMatr = cbind(dfIn, dfIn2)
+#fOptimalMatr = fMatr * t(triVarHedge)
+#fMatrVar = var(fOptimalMatr)
+# fCov = cov(dfIn,dfIn2)
+# ufCov = 0
+ufMatr = duIn - dfInTriVariate - df2InTriVariate
+ufVar = var(dfMatr)
+HEinTriVar = 1 - ufVar / duInVar
+
+cat(HEinBiVar, HEinTriVar)
+#HEinTriVar slightly worse?????
 
 
 
 
 #Hypothesis testing ----
-library(car)
-#linearHypothesis()
+biVarHEMean = mean(biVarHE)
+triVarHEMean = mean(triVarHE)
+triVarHEMean-biVarHEMean
 
 
+#T-test in
+t.test(triVarHEin,biVarHEin)
+#They are different
+
+
+#T-test in
+t.test(ufMatr,uf)
+#They are not statistically different
+
+
+#T-test out
+t.test(triVarHE,biVarHE)
+#They are different
+
+
+
+
+#F-test for variances
+var.test(uf, ufMatr)
+#They are not statistically different
+
+
+
+# library(car)
+# linearHypothesis()
 
 #Information criteria
 # round(AIC(dModel, model, logModel),2)
@@ -512,7 +724,9 @@ library(car)
 # round(c(summary(dModel)$adj.r.squared, summary(model)$adj.r.squared, summary(logModel)$adj.r.squared), 4)
 
 
-#Report models ----
+#Report models
 library(stargazer)
+
+
 
 
