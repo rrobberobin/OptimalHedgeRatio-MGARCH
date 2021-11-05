@@ -43,6 +43,8 @@ vignettes/*.pdf
 #Additional exclusions (Made by Robin)
 *.docx
 *.txt
-*.xlsx
+*.html
+*.csv
+#*.xlsx
 
 
