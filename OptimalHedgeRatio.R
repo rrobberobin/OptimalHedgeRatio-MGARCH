@@ -45,6 +45,7 @@ priceAll = data.frame(dates,u,f,f2)
 dAll = data.frame(dDates,duPer,dfPer,df2Per)
 all = merge(priceAll, dAll, by.x="dates", by.y="dDates", all.x=T)
 
+dAllMatr = as.matrix(dAll[,-1])
 
 
 
@@ -173,20 +174,6 @@ stargazer(all,
 
 
 #OLS ----
-model = lm(u ~ f)
-summary(model)
-plot(f,u)
-abline(model, col="red")
-
-dModel = lm(du ~ df)
-summary(dModel)
-plot(df, du)
-abline(dModel, col="red")
-
-d2Model = lm(du ~ df + df2)
-summary(d2Model)
-plot(df, du)
-abline(dModel, col="red")
 
 perModel = lm(duPer ~ dfPer)
 summary(perModel)
@@ -196,24 +183,41 @@ abline(perModel, col="red")
 
 
 #OLS Hedge ratio ----
-h = perModel$coefficients[2]
-h
 
-dModel$coefficients[2]
-model$coefficients[2]
+#Regular
+OLSHedgeRatioBi = perModel$coefficients[2]
+OLSHedgeRatioBi
+
+#Cross
+
+# fCrossCov2 = cov(data.frame(dfPer,df2Per))
+# ufCrossCov2 = c(cov(duPer,dfPer),cov(duPer,df2Per))
+# OLSHedgeRatioTri2 = ufCrossCov2 / fCrossCov2
+#Wrong?
 
 
-#Same with correlations
-rho = sqrt(summary(model)$r.squared)
-rho
-rhoCheck = cor(duPer,dfPer) #Should be equal to this
+crossCov = cov(data.frame(duPer,dfPer,df2Per,rchisq(length(duPer),3)))
+fCrossCov = crossCov[2:3,2:3]
+ufCrossCov = crossCov[c(1,4),2:3]
+OLSHedgeRatioTri = ufCrossCov %*% solve(fCrossCov)
+
+
+#Compare to this:
+lm(duPer ~ dfPer + df2Per)$coefficients[2:3]
+
+
+
+
+
+
+#Correlation comparison----
+rhoCheck = sqrt(summary(perModel)$r.squared)
 rhoCheck
+cor(duPer,dfPer) #Should be equal to this
+rhoCheck * sd(duPer)/sd(dfPer) #And this is the...?
 
 
-h = rho * sd(u)/sd(f)
-h
-
-cor(du,df2)
+cor(duPer,df2Per)
 
 
 
@@ -504,11 +508,11 @@ biVarSpec2 = dccspec(multispec(replicate(2,uniVarSpec2)),
 
 biGarch = dccfit(spec = biVarSpec, 
                      data = cbind(duPer,dfPer),
-                     out.sample = 252)
+                     out.sample = 100)
 
 biGarch2 = dccfit(spec = biVarSpec2, 
                  data = cbind(duPer,dfPer),
-                 out.sample = 252)
+                 out.sample = 100)
 
 infocriteria(biGarch); infocriteria(biGarch2)
 
@@ -517,9 +521,6 @@ biGarch
 biGarchCor = rcor(biGarch)
 biGarchCov = rcov(biGarch)
 biGarchCov[,,1]
-
-
-biGarchSD = sigma(biGarch)
 
 biGarchDates = head(dates,length(biGarchCor))
 plot(xts(rcor(biGarch)[1,2,],biGarchDates))
@@ -546,16 +547,16 @@ triVarSpec2 = dccspec(multispec(replicate(3,uniVarSpec2)),
 
 triGarch = dccfit(spec = triVarSpec, 
                  data = cbind(duPer,dfPer, df2Per),
-                 out.sample = 50)
+                 out.sample = 100)
 
 triGarch2 = dccfit(spec = triVarSpec2, 
-                  data = cbind(duPer,dfPer, df2Per),
-                  out.sample = 50)
+                  data = dAllMatr,
+                  out.sample = 100)
 
 infocriteria(triGarch); infocriteria(triGarch2)
 
 
-triGarch
+head(triGarch)
 triGarchCor = rcor(triGarch)
 triGarchCov = rcov(triGarch)
 triGarchCov[,,1]
@@ -569,18 +570,24 @@ plot(xts(rcor(triGarch)[2,3,],biGarchDates))
 #Symmetric DCC Forecast----
 #hist(residuals(biGarch))
 triForecastLength = triGarch@model$modeldata$n.start
-dccForecast = dccforecast(triGarch2, triForecastLength-1)
+dccForecast = dccforecast(triGarch2, triForecastLength+1)
 plot(dccForecast,which=1)
 plot(dccForecast,which=2)
 plot(dccForecast,which=3)
+plot(dccForecast,which=4)
 plot(dccForecast,which=5)
+plot(dccForecast)
 
 biForecastLength = biGarch@model$modeldata$n.start
-bidccForecast = dccforecast(biGarch2, biForecastLength-1)
+bidccForecast = dccforecast(biGarch2, biForecastLength+1)
 plot(bidccForecast,which=1)
 plot(bidccForecast,which=2)
 plot(bidccForecast,which=3)
 plot(bidccForecast,which=5)
+
+# test_forecast()
+# forecast::accuracy(dccForecast)
+
 
 
 #Garch tests ----
@@ -593,86 +600,17 @@ matrDPer = cov(cbind(duPer,dfPer))
 is.positive.semi.definite(matrDPer)
 
 
-#Trivariate GARCH hedge ----
-forecastCov = rcov(dccForecast)[[1]]
-t = forecastCov[,,5]
+#Multivariate hedge ratios (in-sample)----
 
-
-# hedgeRatiosM = c()
-# for(n in 1:forecastLength){
-#   #hedge = lm()$coefficients[2]
-# }
-
-hedgeRatiosTriBi = forecastCov[1,2,] / forecastCov[2,2,]
-hedgeRatiosBiBi = biGarchCov[1,2,] / biGarchCov[2,2,]
-
-
-#Hedge ratio formula: general matrix form. solve() is the inverse
-triVarHedge = c()
-for(n in 1:forecastLength){
-  fMatrix = as.matrix(forecastCov[2:3,2:3,n])
-  ufMatrix = as.matrix(forecastCov[2:3,1,n])
-  invF = solve(fMatrix)
-  h = invF %*% ufMatrix
-  triVarHedge = cbind(triVarHedge, h)
-}
-
-triVarHedge = c()
-for(n in 1:forecastLength){
-  fMatrix = as.matrix(forecastCov[2:3,2:3,n])
-  ufMatrix = as.matrix(forecastCov[2:3,1,n])
-  invF = solve(fMatrix)
-  h = invF %*% ufMatrix
-  triVarHedge = cbind(triVarHedge, h)
-}
-
-
-#Hedging effectiveness (out-of-sample) ----
-
-outLength = triGarch@model$modeldata$n.start
-duOut = tail(du,outLength)
-dfOut = tail(df,outLength)
-df2Out = tail(df2,outLength)
-fCov = cov(dfOut,df2Out)
-ufCov = 0
-
-
-
-# test_forecast()
-# forecast::accuracy(dccForecast)
-
-
-
-triVarHE = c()
-for(n in 1:forecastLength){
-  fMatrix = as.matrix(cov(dfOut,df2Out)[n])
-  ufMatrix = as.matrix(forecastCov[2:3,1,n])
-  invF = solve(fMatrix)
-  
-  uMatrix = forecastCov[1,1,n]
-  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
-  HE = denominatorMatrix/uMatrix
-  triVarHE = cbind(triVarHE,HE)
-}
-
-
-biVarHE = c()
-for(n in 1:forecastLength){
-  fMatrix = as.matrix(forecastCov[2,2,n])
-  ufMatrix = as.matrix(forecastCov[2,1,n])
-  invF = solve(fMatrix)
-  
-  uMatrix = forecastCov[1,1,n]
-  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
-  HE = denominatorMatrix/uMatrix
-  biVarHE = cbind(biVarHE,HE)
-}
-
-#Hedging effectiveness (in-sample) ----
 
 inSampleSize = dim(triGarchCov)[3]
 
-#TriVarHedge (in-sample)
+
+#Bivariate hedge ratio (in-sample)
+biHedgeRatioInSample = biGarchCov[1,2,] / biGarchCov[2,2,]
+
+
+#Trivariate hedge ratio (in-sample)
 triVarHedgeIn = c()
 for(n in 1:inSampleSize){
   fMatrix = as.matrix(triGarchCov[2:3,2:3,n])
@@ -684,104 +622,154 @@ for(n in 1:inSampleSize){
 
 
 
+#Multivariate hedge ratios (out-of-sample)----
+
+
+outSampleSize = triGarch@model$modeldata$n.start
+forecastCov = rcov(dccForecast)[[1]]
+biForecastCov = rcov(bidccForecast)[[1]]
+
+
+#Bivariate hedge ratio (out-of-sample)
+hedgeRatiosTriBi = forecastCov[1,2,] / forecastCov[2,2,]
+biHedgeRatioOutSample = biForecastCov[1,2,] / biForecastCov[2,2,]
 
 
 
-
-
-triVarHEin = c()
-for(n in 1:inSampleSize){
-  fMatrix = as.matrix(triGarchCov[2:3,2:3,n])
-  ufMatrix = as.matrix(triGarchCov[2:3,1,n])
+#Trivariate hedge ratio (out-of-sample)
+#Hedge ratio formula: general matrix form. solve() is the inverse
+triVarHedgeOut = c()
+for(n in 1:outSampleSize){
+  fMatrix = as.matrix(forecastCov[2:3,2:3,n])
+  ufMatrix = as.matrix(forecastCov[2:3,1,n])
   invF = solve(fMatrix)
-  
-  uMatrix = biGarchCov[1,1,n]
-  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
-  HE = denominatorMatrix/uMatrix
-  triVarHEin = cbind(triVarHEin,HE)
+  h = invF %*% ufMatrix
+  triVarHedgeOut = cbind(triVarHedgeOut, h)
 }
 
-
-biVarHEin = c()
-for(n in 1:inSampleSize){
-  fMatrix = as.matrix(biGarchCov[2,2,n])
-  ufMatrix = as.matrix(biGarchCov[2,1,n])
-  invF = solve(fMatrix)
-  
-  uMatrix = biGarchCov[1,1,n]
-  denominatorMatrix = t(ufMatrix) %*% invF %*% ufMatrix
-  HE = denominatorMatrix/uMatrix
-  biVarHEin = cbind(biVarHEin,HE)
-}
+# hedgeRatiosM = c()
+# for(n in 1:forecastLength){
+#   #hedge = lm()$coefficients[2]
+# }
 
 
 
-#Should have different models, not the same biGarchCov.
-#Instead biGarchCov and TriGarchCov
-hedgeRatiosInSample = biGarchCov[1,2,] / biGarchCov[2,2,]
-
-
-inLength = length(du) - outLength
-duIn = head(du,inLength)
-duInVar = var(duIn)
-dfIn = head(df,inLength)
-dfInBiOptimal = dfIn * head(hedgeRatiosInSample,inLength)
-uf = duIn - dfInBiOptimal
-dfInBiVariate = var(duIn-dfInBiOptimal)
-HEinBiVar = 1 - dfInBiVariate/duInVar
 
 
 
-dfIn2 = head(df2,inLength)
-dfInTriVariate = head(df,inLength) * head(triVarHedgeIn[1,],inLength)
-df2InTriVariate = head(df2,inLength) * head(triVarHedgeIn[2,],inLength)
-#fMatrixVar = cov(dfInTriVariate,dfIn2TriVariate)
+#Hedge effectiveness (in-sample) ----
+uIn = head(duPer,inSampleSize)
+fIn = head(dfPer,inSampleSize)
+f2In = head(df2Per,inSampleSize)
+uInVar = var(uIn)
 
-#fMatr = cbind(dfIn, dfIn2)
-#fOptimalMatr = fMatr * t(triVarHedge)
-#fMatrVar = var(fOptimalMatr)
-# fCov = cov(dfIn,dfIn2)
-# ufCov = 0
-ufMatr = duIn - dfInTriVariate - df2InTriVariate
-ufVar = var(dfMatr)
-HEinTriVar = 1 - ufVar / duInVar
-
-cat(HEinBiVar, HEinTriVar)
-#HEinTriVar slightly worse?????
+#Bivariate hedge effectiveness (in-sample)
+fInBiOptimal = fIn * head(biHedgeRatioInSample,inSampleSize)
+inHedgeBi = uIn-fInBiOptimal
+inHedgeBiVar = var(inHedgeBi)
+HEInBiVar = 1 - inHedgeBiVar/uInVar
 
 
+#Trivariate hedge effectiveness (in-sample)
+fInTriOptimal = fIn * head(triVarHedgeIn[1,],inSampleSize)
+f2InTriOptimal = f2In * head(triVarHedgeIn[2,],inSampleSize)
+inHedgeTri = uIn - fInTriOptimal - f2InTriOptimal
+fInTriVariate = var(inHedgeTri)
+HEInTriVar = 1 - fInTriVariate / uInVar
+
+cat(HEInBiVar, HEInTriVar)
+#TriVar seems slightly worse in-sample
+
+
+
+
+#Hedge effectiveness (out-of-sample) ----
+
+uOut = tail(duPer,outSampleSize)
+fOut = tail(dfPer,outSampleSize)
+f2Out = tail(df2Per,outSampleSize)
+uOutVar = var(uOut)
+
+#Bivariate hedge effectiveness (out-of-sample)
+fOutBiOptimal = fOut * tail(biHedgeRatioOutSample,outSampleSize)
+outHedgeBi = uOut - fOutBiOptimal
+outHedgeBiVar = var(outHedgeBi)
+HEOutbiVar = 1 - outHedgeBiVar/uOutVar
+
+
+#Trivariate hedge effectiveness (out-of-sample)
+fOutTriOptimal = fOut * head(triVarHedgeOut[1,],outSampleSize)
+f2OutTriOptimal = f2Out * head(triVarHedgeOut[2,],outSampleSize)
+outHedgeTri = uOut - fOutTriOptimal - f2OutTriOptimal
+outHedgeTriVar = var(outHedgeTri)
+HEOutTriVar = 1 - outHedgeTriVar / uOutVar
+
+cat(HEOutbiVar, HEOutTriVar)
+#TriVar seems slightly better out-of-sample
+
+
+#OLS hedged position (normal)
+OLSInHedgedBi = uIn - OLSHedgeRatioBi %*% fIn
+OLSOutHedgedBi = uOut - OLSHedgeRatioBi %*% fOut
+
+
+#OLS hedged position (cross)
+OLSInHedgedTri = uIn - OLSHedgeRatioTri[1,]%*%rbind(fIn,f2In)
+OLSOutHedgedTri = uOut - OLSHedgeRatioTri[1,]%*%rbind(fOut,f2Out)
+
+#Naive
+NaiveInHedged = uIn - fIn
+NaiveOutHedged = uOut - fOut
 
 
 #Hypothesis testing ----
-biVarHEMean = mean(biVarHE)
-triVarHEMean = mean(triVarHE)
-triVarHEMean-biVarHEMean
+
 
 
 #T-test in-sample
-t.test(triVarHEin,biVarHEin)
-#They are different
-
-
-#T-test in-sample
-t.test(ufMatr,uf)
+t1 = t.test(inHedgeTri,inHedgeBi)
 #They are not statistically different
 
 #T-test out-of-sample
-t.test(ufMatr,uf)
+t2 = t.test(outHedgeTri,outHedgeBi)
 #They are not statistically different
 
 
-#T-test out
-t.test(triVarHE,biVarHE)
-#They are different
 
-
-
-#F-test for variances
-var.test(uf, ufMatr)
+#F-test in-sample
+vt1 = var.test(inHedgeTri,inHedgeBi)
 #They are not statistically different
 
+#F-test out-of-sample
+vt2 = var.test(outHedgeTri,outHedgeBi)
+#They are not statistically different
+#If I increase out-of-sample size, they will be become different?
+
+
+#Reporting----
+
+inRes = t(rbind(uIn,NaiveInHedged,OLSInHedgedBi,OLSInHedgedTri,inHedgeBi,inHedgeTri))
+outRes = t(rbind(uOut,NaiveOutHedged,OLSOutHedgedBi,OLSOutHedgedTri,outHedgeBi,outHedgeTri))
+
+vrsIn = colVars(inRes)
+vrsOut = colVars(outRes)
+vrsAnnualPercentages = rbind(vrsIn,vrsOut) * sqrt(252) * 100
+vrs = round(vrsAnnualPercentages,3)
+
+meansIn = colMeans(inRes)
+meansOut = colMeans(outRes)
+meanAnnualPercentages = rbind(meansIn,meansOut) * 252 * 100
+means = round(meanAnnualPercentages,3)
+
+combined = rbind(vrs, means)
+
+pValues = c(t1$p.value,t2$p.value,vt1$p.value,vt2$p.value)
+
+
+results = data.frame(combined, row.names=c("In-sample variance","Out-of-sample variance", "In-sample mean","Out-of-sample mean"))
+colnames(results) = c("Unhedged","Naive","OLS","OLS cross","BiVariate GARCH","TriVariate GARCH")
+
+write.csv(results, "results.csv")
 
 
 # library(car)
@@ -792,9 +780,9 @@ var.test(uf, ufMatr)
 # round(BIC(dModel, model, logModel),2)
 
 #Adjusted R squared
-round(c(summary(dModel)$adj.r.squared, 
-        summary(model)$adj.r.squared, 
-        summary(logModel)$adj.r.squared), 4)
+# round(c(summary(dModel)$adj.r.squared, 
+#         summary(model)$adj.r.squared, 
+#         summary(logModel)$adj.r.squared), 4)
 
 
 #Summary of models----
