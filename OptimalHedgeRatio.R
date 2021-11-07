@@ -5,7 +5,7 @@ cat("\14")
 
 #Import data ----
 folder = "Data/"
-source("ImportData.R")
+source("Methods.R")
 data = importData(folder)
 
 
@@ -136,8 +136,10 @@ adfTest(df2Per, lags = 252, type = c("nc"), title = NULL, description = NULL)
 
 #Need to add these somehow
 library(moments)
-kurt = kurtosis(all[,-1],na.rm=T)
-skew = skewness(all[,-1],na.rm=T)
+skew = c(skewness(all[,-1],na.rm=T))
+kurt = c(kurtosis(all[,-1],na.rm=T))
+kS = round(rbind(skew,kurt),2)
+kurtSkew = data.frame(kS, row.names = c("Skewness","Kurtosis"))
 
 library(stargazer)
 stargazer(all,
@@ -149,9 +151,10 @@ stargazer(all,
           digits = 2,
           digits.extra = 0,
           median=T,
-          add.lines = list(kurt, skew)
+          add.lines = list(skew,kurt)
           )
 
+write.csv(kS, "kurtSkew.csv")
 
 
 
@@ -331,6 +334,8 @@ cor(dfPer,df2Per)
 #Using robust standard deviations
 lm()
 
+#Report OLS diagnostics----
+
 #Timevarying models ----
 
 #ARMA and SARIMA ----
@@ -497,19 +502,17 @@ jarque.test(norma)
 
 #Bivariate GARCH ----
 library(rmgarch)
-biVarSpec = dccspec(multispec(replicate(2,uniVarSpec2)),
+biVarSpec = dccspec(multispec(replicate(2,uniVarSpec3)),
                     VAR=F,
                     lag = NULL,
                     lag.max = 30,
-                    lag.criterion = c("AIC"),
                     dccOrder = c(2,2),
                     model = "aDCC")
 
-biVarSpec2 = dccspec(multispec(replicate(2,uniVarSpec2)),
+biVarSpec2 = dccspec(multispec(replicate(2,uniVarSpec3)),
                     VAR=F,
                     lag = NULL,
                     lag.max = 30,
-                    lag.criterion = c("AIC"),
                     dccOrder = c(2,2),
                     model = "DCC")
 
@@ -538,14 +541,14 @@ plot(xts(rcor(biGarch)[2,3,],biGarchDates))
 #Trivariate GARCH ----
 library(rmgarch)
 triVarSpec = dccspec(multispec(replicate(3,uniVarSpec3)),
-                    VAR=T,
+                    VAR=F,
                     lag = NULL,
                     lag.max = 30,
                     dccOrder = c(2,2,2), #check this
                     model = "aDCC")
 
 triVarSpec2 = dccspec(multispec(replicate(3,uniVarSpec3)),
-                     VAR=T,
+                     VAR=F,
                      lag = NULL,
                      lag.max = 30,
                      dccOrder = c(2,2,2), #check this
@@ -562,7 +565,6 @@ triGarch2 = dccfit(spec = triVarSpec2,
 infocriteria(triGarch); infocriteria(triGarch2)
 
 
-head(triGarch)
 triGarchCor = rcor(triGarch)
 triGarchCov = rcov(triGarch)
 triGarchCov[,,1]
@@ -575,34 +577,26 @@ plot(xts(rcor(triGarch)[1,3,],biGarchDates))
 plot(xts(rcor(triGarch)[2,3,],biGarchDates))
 
 
-#Symmetric DCC Forecast----
+#DCC Forecast----
 #hist(residuals(biGarch))
 triForecastLength = triGarch@model$modeldata$n.start
-dccForecast = dccforecast(triGarch2, triForecastLength+1)
+dccForecast = dccforecast(triGarch, n.roll=triForecastLength)
 plot(dccForecast,which=1)
 plot(dccForecast,which=2)
 plot(dccForecast,which=3)
 plot(dccForecast,which=4)
 plot(dccForecast,which=5)
+par(mar=c(4,4,4,4))
 par(mar=c(2,2,2,2))
 
 biForecastLength = biGarch@model$modeldata$n.start
-bidccForecast = dccforecast(biGarch2, biForecastLength+1)
+bidccForecast = dccforecast(biGarch2, n.roll=biForecastLength)
 plot(bidccForecast,which=1)
 plot(bidccForecast,which=2)
 plot(bidccForecast,which=3)
 plot(bidccForecast,which=5)
 
 
-#Rolling
-triForecastLength = triGarch@model$modeldata$n.start
-dccForecast = dccforecast(triGarch, n.roll=100)
-plot(dccForecast,which=1)
-plot(dccForecast,which=2)
-plot(dccForecast,which=3)
-plot(dccForecast,which=4)
-plot(dccForecast,which=5)
-par(mar=c(2,2,2,2))
 
 # test_forecast()
 # forecast::accuracy(dccForecast)
@@ -626,10 +620,19 @@ is.positive.semi.definite(matrDPer)
 #Normality----
 
 #Residuals
-triGarchRes = data.frame(triGarch@model$residuals/triGarch@model$sigma)
+triGarchRes = data.frame(triGarch@model$residuals)
 triGarchResStd = data.frame(triGarch@mfit$stdresid)
+maybeSame = data.frame(triGarch@model$residuals/triGarch@model$sigma)
+sqrdResiduals = as.matrix(triGarchRes)^2
 head(triGarchResStd)
 head(triGarchRes)
+
+biGarchRes = data.frame(biGarch@model$residuals)
+sqrdResidualsBi = as.matrix(biGarchRes)^2
+
+
+a = likelihood(object = "triGarch")
+str(a)
 
 #residuals(triGarch[])
 skewness(triGarchResStd)
@@ -681,6 +684,14 @@ TRsqrdARCHTri = length(sqrdResiduals[,m])*ARCHEffeTri$r.squared
 pchisq(TRsqrdARCHTri,df=5)
 #We have effects still for u
 
+resLen = dim(sqrdResiduals)[2]
+
+ARCHTri = c(ARCHTest(sqrdResiduals[,1]),
+            ARCHTest(sqrdResiduals[,2]),
+            ARCHTest(sqrdResiduals[,3])
+            )
+ARCHBi = c(ARCHTest(sqrdResidualsBi[,1]),
+           ARCHTest(sqrdResidualsBi[,2]))
 
 
 #Test for asymmetric volatility (levered effects)
@@ -698,21 +709,33 @@ pchisq(TRsqrdEngle2,df=3)
 #After fix
 library(Hmisc)
 minusDummy = ifelse(Lag(triGarchRes,1) < 0, 1, 0)
-sqrdResiduals = as.matrix(triGarchRes)^2
 laggedResiduals = Lag(as.matrix(triGarchRes),1)
 laggedMinusDummy = minusDummy*laggedResiduals
 laggedPlusDummy = (1-minusDummy)*laggedResiduals
 
-n=3
+n=2
 summary(lm(sqrdResiduals[,n] ~ minusDummy[,n]))
 summary(lm(sqrdResiduals[,n] ~ laggedMinusDummy[,n]))
-engleNg = summary(lm(sqrdResiduals[,n] ~ minusDummy[,n] + laggedMinusDummy[,n] + laggedPlusDummy[,n]))
+engleNg=summary(lm(sqrdResiduals[,n] ~ minusDummy[,n] + laggedMinusDummy[,n] + laggedPlusDummy[,n]))
 engleNg
 #A little bit of assymmetry even after grach model
 TRsqrdEngle = length(sqrdResiduals[,n])*engleNg$r.squared
 pchisq(TRsqrdEngle,df=3)
 #Seems to be asymmetric for f
 
+engleNgTri = c()
+for(n in 1:resLen){
+  ENModel = summary(lm(sqrdResiduals[,n] ~ 
+                         minusDummy[,n] + 
+                         laggedMinusDummy[,n] + 
+                         laggedPlusDummy[,n]))
+  TRsqrdEngle = length(sqrdResiduals[,n])*ENModel$r.squared
+  p = pchisq(TRsqrdEngle,df=3)
+  engleNgTri = cbind(engleNgTri,p)
+}
+
+source("Methods.R")
+EngleNg(triGarchRes[,3])
 
 
 
@@ -721,21 +744,34 @@ pchisq(TRsqrdEngle,df=3)
 #Breusch-Godfrey (autocorrelation)
 library(lmtest)
 bgtest(perModel,252)  #test of order 252 based on days
+bgtest(triGarch,252)  #test of order 252 based on days
 
-
-perResStandard = perRes/(summary(perModel)$sigma)
-plot(perResStandard)
-acf(perResStandard, lag.max=30)
-Box.test(perResStandard,lag=1,type="Ljung-Box")
-
+n=3
+par("mar"=c(4,4,4,4))
+par(mfrow=c(1,1))
+plot(triGarchResStd[n])
+acf(triGarchResStd[n], lag.max=10)
+acf(triGarchResStd[n], lag.max=30)
+Box.test(triGarchResStd[n],lag=1,type="Ljung-Box")
+Box.test(triGarchResStd[n],lag=2,type="Ljung-Box")
+Box.test(triGarchResStd[n],lag=5,type="Ljung-Box")
+Box.test(triGarchResStd[n],lag=30,type="Ljung-Box")
 #We should correct for these autocorrelations!
 
+boxFive= c()
+for(n in 1:resLen){
+  box = Box.test(triGarchResStd[n],lag=5,type="Ljung-Box")
+  boxFive = cbind(boxFive,box$p.value)
+  }
 
 #Heteroskedasticity ----
 library(lmtest)
 
 #Breusch-Pagan (check also with White?)
 bptest(perModel)  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
+summary(triGarch)
+#lm(y[2:n] ~ 0 + xreg[2:n,] + y[1:(n-1)])
+
 
 #Correct for heteroskedasticity and autocorrelation (Andrews)
 library(sandwich)
@@ -759,6 +795,16 @@ cor(dfPer,df2Per)
 
 #Using robust standard deviations
 #lm()
+
+#Report diagnostics----
+diag = round(rbind(boxFive,ARCHp,EngleNg),3)
+diagnostics = data.frame(diag,
+                  row.names=c("Box-Ljung, 5 lags", "ARCH test (LM?), 5 lags", "Engle-Ng"))
+colnames(diagnostics) = c("u","f","f2")
+
+write.csv(diagnostics, "diagnostics.csv")
+
+
 
 #Multivariate hedge ratios (in-sample)----
 
@@ -893,31 +939,40 @@ vt2 = var.test(outHedgeTri,outHedgeBi)
 #They are not statistically different
 #If I increase out-of-sample size, they will be become different?
 
-
-#Reporting----
-
-inRes = t(rbind(uIn,NaiveInHedged,OLSInHedgedBi,OLSInHedgedTri,inHedgeBi,inHedgeTri))
-outRes = t(rbind(uOut,NaiveOutHedged,OLSOutHedgedBi,OLSOutHedgedTri,outHedgeBi,outHedgeTri))
-
-vrsIn = colVars(inRes)
-vrsOut = colVars(outRes)
-vrsAnnualPercentages = rbind(vrsIn,vrsOut) * sqrt(252) * 100
-vrs = round(vrsAnnualPercentages,3)
-
-meansIn = colMeans(inRes)
-meansOut = colMeans(outRes)
-meanAnnualPercentages = rbind(meansIn,meansOut) * 252 * 100
-means = round(meanAnnualPercentages,3)
-
-combined = rbind(vrs, means)
-
 pValues = c(t1$p.value,t2$p.value,vt1$p.value,vt2$p.value)
 
 
-results = data.frame(combined, row.names=c("In-sample variance","Out-of-sample variance", "In-sample mean","Out-of-sample mean"))
+#Reporting----
+
+inResults = t(rbind(uIn,NaiveInHedged,OLSInHedgedBi,OLSInHedgedTri,inHedgeBi,inHedgeTri))
+outResults = t(rbind(uOut,NaiveOutHedged,OLSOutHedgedBi,OLSOutHedgedTri,outHedgeBi,outHedgeTri))
+
+library(matrixStats)
+vrsIn = colVars(inResults)
+vrsOut = colVars(outResults)
+vrsAnnualPercentages = rbind(vrsIn,vrsOut) * sqrt(252) * 100
+vrs = round(vrsAnnualPercentages,3)
+
+inHE = 1- vrsIn/uInVar
+outHE = 1- vrsOut/uOutVar
+HE = round(rbind(inHE,outHE),3)
+
+meansIn = colMeans(inResults)
+meansOut = colMeans(outResults)
+meanAnnualPercentages = rbind(meansIn,meansOut) * 252 * 100
+means = round(meanAnnualPercentages,3)
+
+combined = rbind(vrs, means, HE)
+
+results = data.frame(combined, 
+                     row.names=c("In-sample variance","Out-of-sample variance",
+                                 "In-sample return","Out-of-sample return", 
+                                 "In-sample HE","Out-of-sample HE"))
 colnames(results) = c("Unhedged","Naive","OLS","OLS cross","BiVariate GARCH","TriVariate GARCH")
 
 write.csv(results, "results.csv")
+
+
 
 
 # library(car)
@@ -948,5 +1003,23 @@ stargazer(biGarch,#triGarch,
           out = "model.html",
           no.space = T,
           digits=1)
+
+
+require("magrittr")
+modelLatex = {
+  stargazer::stargazer(triGarch@mfit$matcoef, 
+                       type = "text",
+                       digits=2,
+                       digits.extra=0,
+                       title = "Parameter Estimates of the TriVariate Garch") %>% 
+  gsub("Std. Error", "Rob. Std. Error", .) %>%  
+  gsub("t value", "Rob. t value", .) %>%  
+  gsub("mu", "$\\\\mu$", .) %>%
+  gsub("alpha1", "$\\\\alpha$", .) %>%
+  gsub("omega", "$\\\\omega$", .) %>%  
+  gsub("beta1", "$\\\\beta$", .) %>%
+  gsub("shape", "$\\\\nu$", .)  %>%
+  writeLines("arch_output.html")
+  }
 
 
