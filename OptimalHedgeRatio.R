@@ -159,6 +159,8 @@ write.csv(kS, "kurtSkew.csv")
 
 
 
+
+
 #More options for descriptives
 # summary(all[,-1], digits=3)
 # library(pastecs)
@@ -221,8 +223,8 @@ ufCrossCov = crossCov[1,2:3]
 OLSHedgeRatioTri = ufCrossCov %*% solve(fCrossCov)
 
 #This is the same
-triModel = lm(duPer ~ dfPer + df2Per)
-triModel$coefficients[2:3]
+crossModel = lm(duPer ~ dfPer + df2Per)
+crossModel$coefficients[2:3]
 
 
 
@@ -254,24 +256,28 @@ stargazer(model,dModel,perModel,
 #Normality----
 
 #Residuals
-res = model$residuals
-dRes = dModel$residuals
 perRes = perModel$residuals
+crossOLSRes = crossModel$residuals
 
 #Normality of residuals. Do they look normal?
 hist(res, breaks=50, main = "Histogram of price residuals")
 hist(dRes, breaks=50, main = "Histogram of change residuals")
 hist(perRes, breaks=100, main = "Histogram of return residuals")
+hist(crossOLSRes, breaks=100, main = "Histogram of return residuals")
+
 
 #Test for normality
 library(moments)
 jarque.test(res)  #Not normal. The histogram definitely does not look normal
 jarque.test(dRes) #Not normal
 jarque.test(perRes) #Not normal
+JBOLS = jarque.test(perRes)$p.value #Not normal
+jarque.test(crossOLSRes) #Not normal
+JBCross = jarque.test(crossOLSRes)$p.value #Not normal
 
 
 #Remedies for non-normality: (Big sample size CLT, simulating more observations, logarithmic transform)
-plot(log(1+duPer), log(1+dfPer))
+plot(duPer, log(1+dfPer))
 logModel = lm(duPer ~ log(1+dfPer))    #Check if right model. Should I log both?
 loglogModel = lm(log(1+duPer) ~ log(1+dfPer))    #Check if right model. Should I log both?
 logRes = logModel$residuals
@@ -282,6 +288,10 @@ jarque.test(logRes)
 jarque.test(loglogRes)
 summary(logModel)
 summary(loglogModel)
+
+
+logCrossModel = lm(duPer ~ log(1+dfPer)+log(1+df2Per))
+
 
 
 standRes = logRes/(summary(logModel)$sigma)
@@ -295,6 +305,9 @@ jarque.test(standRes) #it's exactly the same as logRes
 #Breusch-Godfrey (autocorrelation)
 library(lmtest)
 bgtest(perModel,252)  #test of order 252 based on days
+bgOLS = bgtest(perModel,252)$p.value  #test of order 252 based on days
+bgtest(crossModel,252)  #test of order 252 based on days
+bgCross = bgtest(crossModel,252)$p.value  #test of order 252 based on days
 
 
 perResStandard = perRes/(summary(perModel)$sigma)
@@ -310,11 +323,20 @@ library(lmtest)
 
 #Breusch-Pagan (check also with White?)
 bptest(perModel)  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
+bpOLS = bptest(perModel)$p.value  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
+bptest(crossModel)  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
+bpCross = bptest(crossModel)$p.value  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
 
 #Correct for heteroskedasticity and autocorrelation (Andrews)
 library(sandwich)
-robust = coeftest(dModel, vcov=vcovHAC(dModel))
-robust
+robustOLSModel = coeftest(perModel, vcov=vcovHAC(perModel))
+robustOLSModel
+robustCrossModel = coeftest(crossModel, vcov=vcovHAC(crossModel))
+robustCrossModel
+
+
+
+
 
 #Multicollinearity----
 
@@ -322,7 +344,7 @@ robust
 
 #TriModel
 library(car)
-vif(triModel)
+vif(crossModel)
 #Vif rule of thumb: if vif>10, we have multicollinearity
 
 cor(dfPer,df2Per)
@@ -335,6 +357,13 @@ cor(dfPer,df2Per)
 lm()
 
 #Report OLS diagnostics----
+JB = rbind(JBOLS,JBCross)
+BG = rbind(bgOLS,bgCross)
+BP = rbind(bpOLS,bpCross)
+
+OLSDiagnostics = data.frame(JB,BG,BP, row.names=c("Regular hedge","Cross hedge"))
+OLSDiagnostics=round(OLSDiagnostics,3)
+write.csv(OLSDiagnostics,"OLSDiagnostics.csv")
 
 #Timevarying models ----
 
@@ -743,8 +772,8 @@ EngleNg(triGarchRes[,3])
 
 #Breusch-Godfrey (autocorrelation)
 library(lmtest)
-bgtest(perModel,252)  #test of order 252 based on days
-bgtest(triGarch,252)  #test of order 252 based on days
+bgtest(perModel,5)  #test of order 252 based on days
+bgtest(crossModel,5)  #test of order 252 based on days
 
 n=3
 par("mar"=c(4,4,4,4))
@@ -989,8 +1018,33 @@ write.csv(results, "results.csv")
 
 
 #Summary of models----
+
+#Robust SE
+
+# cov1         = vcovHC(perModel, type = "HC3")
+# cov2         = vcovHC(crossModel, type = "HC3")
+cov1         = vcovHAC(perModel)
+cov2         = vcovHAC(crossModel)
+robustSE1    = sqrt(diag(cov1))
+robustSE2    = sqrt(diag(cov2))
+
+perModel$AIC <- AIC(perModel)
+crossModel$AIC <- AIC(crossModel)
 library(stargazer)
-stargazer(model,dModel,perModel,biGarch,triGarch,
+stargazer(perModel,crossModel,
+          title = "OLS models",
+          type = "text",
+          out = "model.html",
+          #no.space = T,
+          digits=2,
+          digits.extra=0,
+          se = list(robustSE1, robustSE2),
+          omit.stat = c("f"),
+          keep.stat = c("n","rsq","adj.rsq","aic"))#,
+          #add.lines=list(c("AIC", round(AIC(perModel),0), round(AIC(crossModel),0))))
+          #keep.stat = c("all","aic","bic"))
+
+stargazer(perModel,crossModel,biGarch,triGarch,
           title = "Hedge models",
           type = "text",
           out = "model.html",
