@@ -11,7 +11,7 @@ data = importData(folder)
 
 #Data handling ----
 #Choose which data we want to use
-chooseTickers = c("Corn", "CornFuture", "WheatFuture")
+chooseTickers = c("CornChicago", "CornFuture", "WheatFuture")
 chooseData = data[chooseTickers]
 
 #Renaming the columns
@@ -20,10 +20,10 @@ renamedData = renameCols(chooseData)
 #Merge the datasets and exclude extra columns
 merged = Reduce(function(x, y) merge(x,y,by="Date"), renamedData)
 filter = sapply(names(merged), grepl, pattern="Price|Date")
-prices = merged[filter]
+prices = na.omit(merged[filter])
 
 #Prices
-u = prices$Corn.Price
+u = prices$CornChicago.Price
 f = prices$CornFuture.Settlement.Price
 f2 = prices$WheatFuture.Settlement.Price
 dates = prices$Date
@@ -51,9 +51,17 @@ dAllMatr = as.matrix(dAll[,-1])
 
 
 #Plotting and data analysis ----
-library(xts)
+
+cor(u,f)
+cor(du,df)
+cor(duPer,dfPer)
+cor(duPer,df2Per)
+
+
 
 #Time series----
+
+library(xts)
 #for(x in all) {plot(xts(x,dates))}
 #Map(all,xts,dates)
 plot(xts(u,dates))
@@ -65,6 +73,7 @@ plot(xts(dfPer,dDates))
 #Just looking at the PRICE data, we can see that it is non-stationary.
 #I.e. we should probably use changes or percentage changes (returns)
 
+
 #Normality ----
 #Let's check the distributions. Do they look normal?
 hist(u, breaks=50, main = "Histogram of underlying prices")
@@ -75,39 +84,52 @@ hist(duPer, breaks=50, main = "Histogram of underlying returns")
 hist(dfPer, breaks=50, main = "Histogram of futures returns")
 
 #Autocorrelation ----
-acf(u)
-acf(f)
 
-acf(du,lag.max=10) #Small autocorrelation at t+1
-acf(df,lag.max=10) #Some autocorrelation periodically
+acfLength = sqrt(length(duPer))
+acfLength
 
-acf(duPer,lag.max=30) #Small autocorrelation at t+1
-acf(dfPer,lag.max=50) #Some autocorrelation periodically
+acf(u,acfLength)
+acf(f,acfLength)
 
-pacf(u)
-pacf(f)
+acf(du,lag.max=acfLength) #Small autocorrelation at t+1
+acf(df,lag.max=acfLength) #Some autocorrelation periodically
 
-pacf(du,lag.max=50) #Small partial autocorrelation at t+1
-pacf(df,lag.max=500) #Some partial autocorrelation periodically
+acf(duPer,lag.max=acfLength) #Small autocorrelation at t+1
+acf(dfPer,lag.max=acfLength) #Some autocorrelation periodically
 
-pacf(duPer,lag.max=50) #Small partial autocorrelation at t+1
-pacf(dfPer,lag.max=500) #Some partial autocorrelation periodically
+pacf(u,acfLength)
+pacf(f,acfLength)
+
+pacf(du,lag.max=acfLength) #Small partial autocorrelation at t+1
+pacf(df,lag.max=acfLength) #Some partial autocorrelation periodically
+
+pacf(duPer,lag.max=acfLength) #Small partial autocorrelation at t+1
+pacf(dfPer,lag.max=acfLength) #Some partial autocorrelation periodically
 
 #Ljung-box (autocorrelation)
-Box.test(duPer,lag=9,type="Ljung-Box")
+Box.test(duPer,lag=1,type="Ljung-Box")
+Box.test(duPer,lag=2,type="Ljung-Box")
+Box.test(duPer,lag=5,type="Ljung-Box")
+Box.test(duPer,lag=30,type="Ljung-Box")
+Box.test(duPer,lag=acfLength,type="Ljung-Box")
+Box.test(dfPer,lag=1,type="Ljung-Box")
+Box.test(dfPer,lag=2,type="Ljung-Box")
 Box.test(dfPer,lag=5,type="Ljung-Box")
+Box.test(dfPer,lag=30,type="Ljung-Box")
+Box.test(dfPer,lag=acfLength,type="Ljung-Box")
 
 #Unit-root ----
 #Augmented Dickey-Fuller (unit root)
 library(fUnitRoots)
-adfTest(duPer, lags = 9, type = c("nc"), title = NULL, description = NULL)
-adfTest(dfPer, lags = 5, type = c("nc"), title = NULL, description = NULL)
+adfTest(duPer, lags = 252, type = c("nc"), title = NULL, description = NULL)
+adfTest(dfPer, lags = 252, type = c("nc"), title = NULL, description = NULL)
+adfTest(df2Per, lags = 252, type = c("nc"), title = NULL, description = NULL)
 
 #Test for cointegration
 
-cor(u,f)
-cor(du,df)
-cor(duPer,dfPer)
+
+
+
 
 
 #Descriptive statistics ----
@@ -188,58 +210,26 @@ abline(perModel, col="red")
 OLSHedgeRatioBi = perModel$coefficients[2]
 OLSHedgeRatioBi
 
+
 #Cross
-
-# fCrossCov2 = cov(data.frame(dfPer,df2Per))
-# ufCrossCov2 = c(cov(duPer,dfPer),cov(duPer,df2Per))
-# OLSHedgeRatioTri2 = ufCrossCov2 / fCrossCov2
-#Wrong?
-
-
-crossCov = cov(data.frame(duPer,dfPer,df2Per,rchisq(length(duPer),3)))
+crossCov = cov(data.frame(duPer,dfPer,df2Per))
 fCrossCov = crossCov[2:3,2:3]
-ufCrossCov = crossCov[c(1,4),2:3]
+ufCrossCov = crossCov[1,2:3]
 OLSHedgeRatioTri = ufCrossCov %*% solve(fCrossCov)
 
-
-#Compare to this:
-lm(duPer ~ dfPer + df2Per)$coefficients[2:3]
-
-
+#This is the same
+triModel = lm(duPer ~ dfPer + df2Per)
+triModel$coefficients[2:3]
 
 
 
-
-#Correlation comparison----
+#CorrelationCheck
 rhoCheck = sqrt(summary(perModel)$r.squared)
 rhoCheck
-cor(duPer,dfPer) #Should be equal to this
-rhoCheck * sd(duPer)/sd(dfPer) #And this is the...?
+cor(duPer,dfPer)
 
-
-cor(duPer,df2Per)
-
-
-
-#NonLinearModels ----
-nonLinearModel = lm(u ~ f + I(f^2))
-nonLinearModel2 = lm(u ~ poly(f,6))
-summary(nonLinearModel)
-summary(nonLinearModel2)
-lines(f,predict(nonLinearModel,data.frame(f)))
-
-nonLinearModel3 = nls(u ~ f + I(f^2), start=list(f=1))
-#lines(f,predict(nonLinearModel3),lty=2,col="red",lwd=3)
-
-library(ggplot2)
-qplot(f,u)+stat_smooth(method="lm", formula="y~poly(x,2)")
-#ggplot(all, aes(x = f, y = nonLinearModel))
-
-nonLinearModel4 = lm(u[-1] ~ f[-1] + I(df*f[-1]))
-summary(nonLinearModel4)
-
-nonLinearModel5 = lm(u[-1] ~ f[-1] + I(df^2))
-summary(nonLinearModel5)
+#HedgeCheck
+rhoCheck * sd(duPer)/sd(dfPer)
 
 
 
@@ -303,6 +293,12 @@ jarque.test(standRes) #it's exactly the same as logRes
 library(lmtest)
 bgtest(perModel,252)  #test of order 252 based on days
 
+
+perResStandard = perRes/(summary(perModel)$sigma)
+plot(perResStandard)
+acf(perResStandard, lag.max=30)
+Box.test(perResStandard,lag=1,type="Ljung-Box")
+
 #We should correct for these autocorrelations!
 
 
@@ -318,7 +314,16 @@ robust = coeftest(dModel, vcov=vcovHAC(dModel))
 robust
 
 #Multicollinearity----
-#No multicollinearity if we have only one explanatory variable
+
+#BiModel has no multicollinearity because we have only one explanatory variable
+
+#TriModel
+library(car)
+vif(triModel)
+#Vif rule of thumb: if vif>10, we have multicollinearity
+
+cor(dfPer,df2Per)
+
 
 #If we have granger causality, we could include both prices and also check for collinearity
 #Conduct corrections for some of the problems----
@@ -395,7 +400,7 @@ plot(seasonalForecast)
 
 
 #Univariate GARCH ----
-library(rugarch)
+library(rugarch);library(rmgarch);
 uniVarSpec = ugarchspec(variance.model=list(garchOrder=c(1,1),
                                             model="sGARCH"),
                         mean.model=list(armaOrder=c(0,0),
@@ -409,22 +414,24 @@ uniVarSpec2 = ugarchspec(variance.model=list(garchOrder=c(2,2),
                         distribution.model="norm")
 
 uniVarSpec3 = ugarchspec(variance.model=list(garchOrder=c(2,2),
-                                             model="sGARCH"),
-                         mean.model=list(armaOrder=c(0,1),
+                                             model="apARCH"),
+                         mean.model=list(armaOrder=c(0,0),
                                          include.mean = F),
                          distribution.model="norm")
 
+#apARCH seems better than gjrGARCH
+
 uniGarch = ugarchfit(spec = uniVarSpec, 
-                     data = df2Per,
-                     out.sample=20)
+                     data = duPer,
+                     out.sample=50)
 
 uniGarch2 = ugarchfit(spec = uniVarSpec2, 
-                     data = df2Per,
-                     out.sample=20)
+                     data = duPer,
+                     out.sample=50)
 
 uniGarch3 = ugarchfit(spec = uniVarSpec3, 
-                      data = df2Per,
-                      out.sample=20,solver="hybrid")
+                      data = duPer,
+                      out.sample=50,solver="hybrid")
 
 
 infocriteria(uniGarch);infocriteria(uniGarch2);infocriteria(uniGarch3)
@@ -436,8 +443,8 @@ print(uniGarch)
 #UniGarch forecast ----
 uniGarchForecast = ugarchforecast(uniGarch,
                                   n.ahead=30,
-                                  out.sample = 0)
-plot(uniGarchForecast, which=3)
+                                  out.sample = 10)
+plot(uniGarchForecast, which=1)
 
 #Univariate GARCH hedge----
 
@@ -529,19 +536,18 @@ plot(xts(rcor(biGarch)[2,3,],biGarchDates))
 
 
 #Trivariate GARCH ----
-triVarSpec = dccspec(multispec(replicate(3,uniVarSpec2)),
-                    VAR=F,
+library(rmgarch)
+triVarSpec = dccspec(multispec(replicate(3,uniVarSpec3)),
+                    VAR=T,
                     lag = NULL,
                     lag.max = 30,
-                    lag.criterion = c("AIC"),
                     dccOrder = c(2,2,2), #check this
                     model = "aDCC")
 
-triVarSpec2 = dccspec(multispec(replicate(3,uniVarSpec2)),
-                     VAR=F,
+triVarSpec2 = dccspec(multispec(replicate(3,uniVarSpec3)),
+                     VAR=T,
                      lag = NULL,
                      lag.max = 30,
-                     lag.criterion = c("AIC"),
                      dccOrder = c(2,2,2), #check this
                      model = "DCC")
 
@@ -561,6 +567,8 @@ triGarchCor = rcor(triGarch)
 triGarchCov = rcov(triGarch)
 triGarchCov[,,1]
 
+head(triGarch@model$sigma)
+
 triGarchDates = head(dates,length(triGarchCor))
 plot(xts(rcor(triGarch)[1,2,],biGarchDates))
 plot(xts(rcor(triGarch)[1,3,],biGarchDates))
@@ -576,7 +584,7 @@ plot(dccForecast,which=2)
 plot(dccForecast,which=3)
 plot(dccForecast,which=4)
 plot(dccForecast,which=5)
-plot(dccForecast)
+par(mar=c(2,2,2,2))
 
 biForecastLength = biGarch@model$modeldata$n.start
 bidccForecast = dccforecast(biGarch2, biForecastLength+1)
@@ -585,8 +593,20 @@ plot(bidccForecast,which=2)
 plot(bidccForecast,which=3)
 plot(bidccForecast,which=5)
 
+
+#Rolling
+triForecastLength = triGarch@model$modeldata$n.start
+dccForecast = dccforecast(triGarch, n.roll=100)
+plot(dccForecast,which=1)
+plot(dccForecast,which=2)
+plot(dccForecast,which=3)
+plot(dccForecast,which=4)
+plot(dccForecast,which=5)
+par(mar=c(2,2,2,2))
+
 # test_forecast()
 # forecast::accuracy(dccForecast)
+plot(forecast(triGarch2))
 
 
 
@@ -599,6 +619,146 @@ is.positive.semi.definite(matrD)
 matrDPer = cov(cbind(duPer,dfPer))
 is.positive.semi.definite(matrDPer)
 
+
+#Diagnostic tests----
+#Test for normality, heteroskedasticity, autocorrelation, multicollinearity
+
+#Normality----
+
+#Residuals
+triGarchRes = data.frame(triGarch@model$residuals/triGarch@model$sigma)
+triGarchResStd = data.frame(triGarch@mfit$stdresid)
+head(triGarchResStd)
+head(triGarchRes)
+
+#residuals(triGarch[])
+skewness(triGarchResStd)
+kurtosis(triGarchResStd)
+
+library(car)
+qqPlot(triGarchResStd[,1])
+
+#Normality of residuals. Do they look normal?
+sapply(triGarchRes,hist,breaks=50, main = "Histogram of GARCH residuals")
+sapply(triGarchResStd,hist,breaks=50, main = "Histogram of GARCH residuals")
+hist(triGarchResStd[,1], breaks=50)
+hist(triGarchResStd[,2], breaks=50)
+hist(triGarchResStd[,3], breaks=50)
+hist(triGarchRes[,1], breaks=50)
+hist(triGarchRes[,2], breaks=50)
+hist(triGarchRes[,3], breaks=50)
+
+
+#Test for normality
+library(moments)
+sapply(triGarchRes,jarque.test)  #Not normal. Leptocurtic
+sapply(triGarchResStd,jarque.test) #Not normal
+
+
+#ARCH effects test (volatility clustering)
+perResSqrd = perRes^2
+ARCHEffeOLS = summary(lm(perResSqrd ~ Lag(perResSqrd,1) +
+                           Lag(perResSqrd,2) + 
+                           Lag(perResSqrd,3) +
+                           Lag(perResSqrd,4) +
+                           Lag(perResSqrd,5)
+))
+ARCHEffeOLS
+TRsqrdARCHOLS = length(perResSqrd)*ARCHEffeOLS$r.squared
+pchisq(TRsqrdARCHOLS,df=5)
+#We have effects
+
+
+#After fixes
+m=1
+ARCHEffeTri = summary(lm(sqrdResiduals[,m] ~ Lag(sqrdResiduals[,m],1) +
+                           Lag(sqrdResiduals[,m],2) + Lag(sqrdResiduals[,m],3) +
+                           Lag(sqrdResiduals[,m],4) + Lag(sqrdResiduals[,m],5)
+                         
+))
+ARCHEffeTri
+TRsqrdARCHTri = length(sqrdResiduals[,m])*ARCHEffeTri$r.squared
+pchisq(TRsqrdARCHTri,df=5)
+#We have effects still for u
+
+
+
+#Test for asymmetric volatility (levered effects)
+library(Hmisc)
+minusDummy2 = ifelse(Lag(perRes,1) < 0, 1, 0)
+laggedResiduals2 = Lag(as.matrix(perRes),1)
+laggedMinusDummy2 = minusDummy2*laggedResiduals2
+laggedPlusDummy2 = (1-minusDummy2)*laggedResiduals2
+engleNg2 = summary(lm(perResSqrd ~ minusDummy2 + laggedMinusDummy2 + laggedPlusDummy2))
+engleNg2
+TRsqrdEngle2 = length(perResSqrd)*engleNg2$r.squared
+pchisq(TRsqrdEngle2,df=3)
+
+
+#After fix
+library(Hmisc)
+minusDummy = ifelse(Lag(triGarchRes,1) < 0, 1, 0)
+sqrdResiduals = as.matrix(triGarchRes)^2
+laggedResiduals = Lag(as.matrix(triGarchRes),1)
+laggedMinusDummy = minusDummy*laggedResiduals
+laggedPlusDummy = (1-minusDummy)*laggedResiduals
+
+n=3
+summary(lm(sqrdResiduals[,n] ~ minusDummy[,n]))
+summary(lm(sqrdResiduals[,n] ~ laggedMinusDummy[,n]))
+engleNg = summary(lm(sqrdResiduals[,n] ~ minusDummy[,n] + laggedMinusDummy[,n] + laggedPlusDummy[,n]))
+engleNg
+#A little bit of assymmetry even after grach model
+TRsqrdEngle = length(sqrdResiduals[,n])*engleNg$r.squared
+pchisq(TRsqrdEngle,df=3)
+#Seems to be asymmetric for f
+
+
+
+
+#Autocorrelation ----
+
+#Breusch-Godfrey (autocorrelation)
+library(lmtest)
+bgtest(perModel,252)  #test of order 252 based on days
+
+
+perResStandard = perRes/(summary(perModel)$sigma)
+plot(perResStandard)
+acf(perResStandard, lag.max=30)
+Box.test(perResStandard,lag=1,type="Ljung-Box")
+
+#We should correct for these autocorrelations!
+
+
+#Heteroskedasticity ----
+library(lmtest)
+
+#Breusch-Pagan (check also with White?)
+bptest(perModel)  #p-value = 0.9401.  Can't reject null. We have homoskedasticity
+
+#Correct for heteroskedasticity and autocorrelation (Andrews)
+library(sandwich)
+robust = coeftest(dModel, vcov=vcovHAC(dModel))
+robust
+
+#Multicollinearity----
+
+#BiModel has no multicollinearity because we have only one explanatory variable
+
+#TriModel
+library(car)
+vif(triModel)
+#Vif rule of thumb: if vif>10, we have multicollinearity
+
+cor(dfPer,df2Per)
+
+
+#If we have granger causality, we could include both prices and also check for collinearity
+#Conduct corrections for the problems----
+
+#Using robust standard deviations
+#lm()
 
 #Multivariate hedge ratios (in-sample)----
 
@@ -618,7 +778,7 @@ for(n in 1:inSampleSize){
   invF = solve(fMatrix)
   h = invF %*% ufMatrix
   triVarHedgeIn = cbind(triVarHedgeIn, h)
-}
+  }
 
 
 
@@ -631,9 +791,7 @@ biForecastCov = rcov(bidccForecast)[[1]]
 
 
 #Bivariate hedge ratio (out-of-sample)
-hedgeRatiosTriBi = forecastCov[1,2,] / forecastCov[2,2,]
 biHedgeRatioOutSample = biForecastCov[1,2,] / biForecastCov[2,2,]
-
 
 
 #Trivariate hedge ratio (out-of-sample)
@@ -646,13 +804,6 @@ for(n in 1:outSampleSize){
   h = invF %*% ufMatrix
   triVarHedgeOut = cbind(triVarHedgeOut, h)
 }
-
-# hedgeRatiosM = c()
-# for(n in 1:forecastLength){
-#   #hedge = lm()$coefficients[2]
-# }
-
-
 
 
 
@@ -679,7 +830,6 @@ HEInTriVar = 1 - fInTriVariate / uInVar
 
 cat(HEInBiVar, HEInTriVar)
 #TriVar seems slightly worse in-sample
-
 
 
 
@@ -733,8 +883,6 @@ t1 = t.test(inHedgeTri,inHedgeBi)
 #T-test out-of-sample
 t2 = t.test(outHedgeTri,outHedgeBi)
 #They are not statistically different
-
-
 
 #F-test in-sample
 vt1 = var.test(inHedgeTri,inHedgeBi)
